@@ -57,8 +57,7 @@ class PanelPrincipal extends JPanel {
     private final JLabel lblUtilidad = tarjetaValor();
 
     // Menú del día
-    private final DefaultComboBoxModel<Menu> modeloTodosMenus = new DefaultComboBoxModel<>();
-    private final JComboBox<Menu> cmbMenus = new JComboBox<>(modeloTodosMenus);
+    private final BuscadorMenu buscadorDia;
     private final DefaultTableModel modeloMenuDia =
             Ui.modelo("Menú", "Precio", "Platos posibles", "Despachados", "Vendido");
     private final JTable tablaMenuDia = Ui.tabla(modeloMenuDia);
@@ -69,8 +68,7 @@ class PanelPrincipal extends JPanel {
             DateTimeFormatter.ofPattern("EEEE dd/MM", Locale.forLanguageTag("es"));
     private static final DateTimeFormatter DIA_CORTO = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private final JTabbedPane pestanasMenu = new JTabbedPane();
-    private final DefaultComboBoxModel<Menu> modeloMenusSemana = new DefaultComboBoxModel<>();
-    private final JComboBox<Menu> cmbMenusSemana = new JComboBox<>(modeloMenusSemana);
+    private final BuscadorMenu buscadorSemana;
     private final JLabel lblSemana = new JLabel();
     private final DefaultTableModel modeloSemana = Ui.modelo("Día", "Menús planificados", "Platos despachados");
     private final JTable tablaSemana = Ui.tabla(modeloSemana);
@@ -79,8 +77,7 @@ class PanelPrincipal extends JPanel {
     // Despachos
     private final DefaultComboBoxModel<Cliente> modeloClientes = new DefaultComboBoxModel<>();
     private final JComboBox<Cliente> cmbCliente = new JComboBox<>(modeloClientes);
-    private final DefaultComboBoxModel<Menu> modeloMenusDespacho = new DefaultComboBoxModel<>();
-    private final JComboBox<Menu> cmbMenuDespacho = new JComboBox<>(modeloMenusDespacho);
+    private final BuscadorMenu buscadorDespacho = new BuscadorMenu(() -> menusDia, "en el menú de este día");
     private final JSpinner spPlatos = new JSpinner(new SpinnerNumberModel(1, 1, 10000, 1));
     private final DefaultTableModel modeloDespachos = Ui.modelo("Cliente", "Menú", "Platos", "Total");
     private final JTable tablaDespachos = Ui.tabla(modeloDespachos);
@@ -102,6 +99,8 @@ class PanelPrincipal extends JPanel {
     PanelPrincipal(DatosNegocio datos) {
         super(new BorderLayout(8, 8));
         this.datos = datos;
+        buscadorDia = new BuscadorMenu(datos::getMenus, "registrado");
+        buscadorSemana = new BuscadorMenu(datos::getMenus, "registrado");
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         add(construirCabecera(), BorderLayout.NORTH);
@@ -181,13 +180,15 @@ class PanelPrincipal extends JPanel {
         JButton btnAgregar = new JButton("Agregar");
         JButton btnQuitar = new JButton("Quitar");
         barra.add(new JLabel("Menú:"));
-        barra.add(cmbMenus);
+        barra.add(buscadorDia);
         barra.add(btnAgregar);
         barra.add(btnQuitar);
         btnAgregar.addActionListener(e -> {
-            Menu m = (Menu) cmbMenus.getSelectedItem();
-            if (m == null) { Ui.error(this, "Cree menús en la pestaña Menús."); return; }
+            Menu m = buscadorDia.getSeleccionado();
+            if (m == null) { Ui.error(this, buscadorDia.motivoSinSeleccion()); return; }
             datos.agregarAlMenuDelDia(fecha, m);
+            buscadorDia.limpiar();
+            buscadorDia.enfocar();
         });
         btnQuitar.addActionListener(e -> {
             int r = tablaMenuDia.getSelectedRow();
@@ -220,7 +221,7 @@ class PanelPrincipal extends JPanel {
         JButton btnAgregar = new JButton("Agregar a días seleccionados");
         JButton btnQuitar = new JButton("Quitar");
         acciones.add(new JLabel("Menú:"));
-        acciones.add(cmbMenusSemana);
+        acciones.add(buscadorSemana);
         acciones.add(btnAgregar);
         acciones.add(btnQuitar);
         btnAgregar.addActionListener(e -> agregarASemana());
@@ -265,20 +266,18 @@ class PanelPrincipal extends JPanel {
     }
 
     private void agregarASemana() {
-        Menu m = (Menu) cmbMenusSemana.getSelectedItem();
-        if (m == null) { Ui.error(this, "Cree menús en la pestaña Menús."); return; }
+        Menu m = buscadorSemana.getSeleccionado();
+        if (m == null) { Ui.error(this, buscadorSemana.motivoSinSeleccion()); return; }
         List<LocalDate> dias = diasSeleccionados();
         if (dias.isEmpty()) { Ui.error(this, "Seleccione uno o varios días de la tabla."); return; }
         for (LocalDate d : dias) datos.agregarAlMenuDelDia(d, m);
     }
 
     private void quitarDeSemana() {
-        Menu m = (Menu) cmbMenusSemana.getSelectedItem();
+        Menu m = buscadorSemana.getSeleccionado();
+        if (m == null) { Ui.error(this, buscadorSemana.motivoSinSeleccion()); return; }
         List<LocalDate> dias = diasSeleccionados();
-        if (m == null || dias.isEmpty()) {
-            Ui.error(this, "Elija el menú y seleccione los días de los que desea quitarlo.");
-            return;
-        }
+        if (dias.isEmpty()) { Ui.error(this, "Seleccione los días de los que desea quitar el menú."); return; }
         for (LocalDate d : dias) datos.quitarDelMenuDelDia(d, m);
     }
 
@@ -288,7 +287,7 @@ class PanelPrincipal extends JPanel {
         form.add(new JLabel("Cliente:"), Ui.gbc(0, 0));
         form.add(cmbCliente, Ui.gbc(1, 0));
         form.add(new JLabel("Menú:"), Ui.gbc(2, 0));
-        form.add(cmbMenuDespacho, Ui.gbc(3, 0));
+        form.add(buscadorDespacho, Ui.gbc(3, 0));
         form.add(new JLabel("Platos:"), Ui.gbc(0, 1));
         form.add(spPlatos, Ui.gbc(1, 1));
         JButton btnRegistrar = new JButton("Registrar despacho");
@@ -373,9 +372,14 @@ class PanelPrincipal extends JPanel {
 
     private void registrarDespacho() {
         Cliente c = (Cliente) cmbCliente.getSelectedItem();
-        Menu m = (Menu) cmbMenuDespacho.getSelectedItem();
+        Menu m = buscadorDespacho.getSeleccionado();
         if (c == null) { Ui.error(this, "Registre clientes en la pestaña Clientes."); return; }
-        if (m == null) { Ui.error(this, "Agregue al menos un menú al menú del día."); return; }
+        if (m == null) {
+            String motivo = menusDia.isEmpty()
+                    ? "Agregue al menos un menú al menú de este día." : buscadorDespacho.motivoSinSeleccion();
+            Ui.error(this, motivo);
+            return;
+        }
         int platos = (Integer) spPlatos.getValue();
         List<String> faltan = datos.faltantes(m, platos);
         if (!faltan.isEmpty() && !Ui.confirmar(this,
@@ -416,13 +420,10 @@ class PanelPrincipal extends JPanel {
     }
 
     private void refrescar() {
-        recargar(modeloTodosMenus, List.copyOf(datos.getMenus()));
-        recargar(modeloMenusSemana, List.copyOf(datos.getMenus()));
         recargar(modeloClientes, List.copyOf(datos.getClientes()));
 
         // Menú del día
         menusDia = datos.getMenuDelDia(fecha);
-        recargar(modeloMenusDespacho, menusDia);
         modeloMenuDia.setRowCount(0);
         for (Menu m : menusDia) {
             int despachados = datos.platosDelDia(fecha, m);
