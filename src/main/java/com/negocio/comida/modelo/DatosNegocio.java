@@ -1,6 +1,9 @@
 package com.negocio.comida.modelo;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.io.Serializable;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,6 +32,16 @@ public class DatosNegocio implements Serializable {
     private final Map<LocalDate, List<Long>> menuDelDia = new HashMap<>();
 
     private transient List<Runnable> oyentes;
+
+    /** Convierte datos de versiones anteriores (gastos "Comida" → "Otros"). */
+    @SuppressWarnings("deprecation")
+    private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+        in.defaultReadObject();
+        gastos.replaceAll(g -> g.getTipo() == TipoGasto.COMIDA
+                ? new Gasto(g.getId(), g.getFecha(), TipoGasto.OTROS, g.getDescripcion(), g.getMonto(),
+                        g.getDespachoId())
+                : g);
+    }
 
     // ------------------------------------------------------------ oyentes
 
@@ -175,6 +188,27 @@ public class DatosNegocio implements Serializable {
         if (ids != null && ids.remove(m.getId())) notificar();
     }
 
+    /** Lunes de la semana a la que pertenece la fecha. */
+    public static LocalDate inicioSemana(LocalDate fecha) {
+        return fecha.with(DayOfWeek.MONDAY);
+    }
+
+    /**
+     * Copia la planificación de los 7 días anteriores a la semana que empieza en
+     * {@code lunes}. Los menús ya planificados se conservan (no se duplican).
+     */
+    public void copiarSemanaAnterior(LocalDate lunes) {
+        for (int i = 0; i < 7; i++) {
+            LocalDate destino = lunes.plusDays(i);
+            List<Long> origen = menuDelDia.getOrDefault(destino.minusWeeks(1), List.of());
+            List<Long> ids = menuDelDia.computeIfAbsent(destino, f -> new ArrayList<>());
+            for (Long id : origen) {
+                if (!ids.contains(id) && buscarMenu(id).isPresent()) ids.add(id);
+            }
+        }
+        notificar();
+    }
+
     // ------------------------------------------------------------ gastos
 
     public List<Gasto> getGastos(LocalDate fecha) {
@@ -186,7 +220,11 @@ public class DatosNegocio implements Serializable {
         notificar();
     }
 
+    /** Elimina un gasto manual. Los de costo de ingredientes se quitan anulando el despacho. */
     public void eliminarGasto(Gasto g) {
+        if (g.esAutomatico()) {
+            throw new IllegalArgumentException("El gasto pertenece a un despacho; anule el despacho.");
+        }
         gastos.remove(g);
         notificar();
     }
@@ -223,6 +261,9 @@ public class DatosNegocio implements Serializable {
 
     public void eliminarCliente(Cliente c) {
         clientes.remove(c);
+        for (Despacho d : getDespachosCliente(c)) {
+            gastos.removeIf(g -> g.getDespachoId() == d.getId());
+        }
         despachos.removeIf(d -> d.getClienteId() == c.getId());
         notificar();
     }
@@ -234,21 +275,29 @@ public class DatosNegocio implements Serializable {
     // ------------------------------------------------------------ despachos
 
     /**
-     * Registra platos entregados a un cliente y descuenta del inventario los
-     * ingredientes usados (sin dejar existencias negativas).
+     * Registra platos entregados a un cliente, descuenta del inventario los
+     * ingredientes usados (sin dejar existencias negativas) y anota su costo
+     * como gasto del día.
      */
     public void registrarDespacho(LocalDate fecha, Cliente c, Menu m, int platos) {
+        double costo = costoPlato(m) * platos;
         for (ItemMenu it : m.getItems()) {
             buscarIngrediente(it.getIngredienteId()).ifPresent(i ->
                     i.setCantidad(Math.max(0, i.getCantidad() - it.getCantidad() * platos)));
         }
-        despachos.add(new Despacho(siguienteId(), fecha, c.getId(), m.getId(), m.getNombre(),
-                platos, m.getPrecioVenta()));
+        Despacho d = new Despacho(siguienteId(), fecha, c.getId(), m.getId(), m.getNombre(),
+                platos, m.getPrecioVenta());
+        despachos.add(d);
+        if (costo > 0) {
+            gastos.add(new Gasto(siguienteId(), fecha, TipoGasto.INGREDIENTES,
+                    platos + " x " + m.getNombre() + " - " + c.getNombre(), costo, d.getId()));
+        }
         notificar();
     }
 
-    /** Elimina un despacho y devuelve al inventario los ingredientes. */
+    /** Elimina un despacho, devuelve al inventario los ingredientes y quita su gasto. */
     public void eliminarDespacho(Despacho d) {
+        gastos.removeIf(g -> g.getDespachoId() == d.getId());
         buscarMenu(d.getMenuId()).ifPresent(m -> {
             for (ItemMenu it : m.getItems()) {
                 buscarIngrediente(it.getIngredienteId()).ifPresent(i ->

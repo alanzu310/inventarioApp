@@ -30,7 +30,14 @@ public final class Repositorio {
              ObjectInputStream ois = new ObjectInputStream(in)) {
             return (DatosNegocio) ois.readObject();
         } catch (IOException | ClassNotFoundException | ClassCastException e) {
-            System.err.println("No se pudieron leer los datos (" + e + "). Se inicia vacío.");
+            // Se guarda una copia del archivo ilegible para no perderlo al guardar de nuevo.
+            Path copia = ARCHIVO.resolveSibling(ARCHIVO.getFileName() + ".ilegible-" + System.currentTimeMillis());
+            try {
+                Files.copy(ARCHIVO, copia);
+            } catch (IOException ignored) {
+                // si tampoco se puede copiar, se continúa
+            }
+            System.err.println("No se pudieron leer los datos (" + e + "). Copia en " + copia + ". Se inicia vacío.");
             return new DatosNegocio();
         }
     }

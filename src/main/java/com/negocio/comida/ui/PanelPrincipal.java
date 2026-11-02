@@ -11,11 +11,17 @@ import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.JButton;
@@ -24,6 +30,8 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
+import javax.swing.JTabbedPane;
+import javax.swing.ListSelectionModel;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.SpinnerDateModel;
@@ -33,7 +41,8 @@ import javax.swing.table.DefaultTableModel;
 
 /**
  * Pestaña principal (día de trabajo): menú del día, despachos a clientes,
- * gastos de comida / combustible / gas y el resumen de platos por cliente.
+ * planificación semanal, gastos (otros / combustible / gas / costo de
+ * ingredientes) y el resumen de platos por cliente.
  */
 class PanelPrincipal extends JPanel {
     private final DatosNegocio datos;
@@ -55,6 +64,18 @@ class PanelPrincipal extends JPanel {
     private final JTable tablaMenuDia = Ui.tabla(modeloMenuDia);
     private List<Menu> menusDia = List.of();
 
+    // Menú de la semana
+    private static final DateTimeFormatter DIA_SEMANA =
+            DateTimeFormatter.ofPattern("EEEE dd/MM", Locale.forLanguageTag("es"));
+    private static final DateTimeFormatter DIA_CORTO = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    private final JTabbedPane pestanasMenu = new JTabbedPane();
+    private final DefaultComboBoxModel<Menu> modeloMenusSemana = new DefaultComboBoxModel<>();
+    private final JComboBox<Menu> cmbMenusSemana = new JComboBox<>(modeloMenusSemana);
+    private final JLabel lblSemana = new JLabel();
+    private final DefaultTableModel modeloSemana = Ui.modelo("Día", "Menús planificados", "Platos despachados");
+    private final JTable tablaSemana = Ui.tabla(modeloSemana);
+    private List<LocalDate> diasSemana = List.of();
+
     // Despachos
     private final DefaultComboBoxModel<Cliente> modeloClientes = new DefaultComboBoxModel<>();
     private final JComboBox<Cliente> cmbCliente = new JComboBox<>(modeloClientes);
@@ -66,7 +87,7 @@ class PanelPrincipal extends JPanel {
     private List<Despacho> despachosDia = List.of();
 
     // Gastos
-    private final JComboBox<TipoGasto> cmbTipo = new JComboBox<>(TipoGasto.values());
+    private final JComboBox<TipoGasto> cmbTipo = new JComboBox<>(TipoGasto.manuales().toArray(new TipoGasto[0]));
     private final JTextField txtDescripcion = new JTextField(12);
     private final JTextField txtMonto = new JTextField(7);
     private final DefaultTableModel modeloGastos = Ui.modelo("Tipo", "Descripción", "Monto");
@@ -85,11 +106,12 @@ class PanelPrincipal extends JPanel {
 
         add(construirCabecera(), BorderLayout.NORTH);
 
-        JPanel centro = new JPanel(new GridLayout(2, 2, 8, 8));
-        centro.add(construirMenuDelDia());
-        centro.add(construirDespachos());
-        centro.add(construirGastos());
-        centro.add(construirPorCliente());
+        // Fila superior un poco más alta para que se vean los 7 días de la semana.
+        JPanel centro = new JPanel(new GridBagLayout());
+        agregarCelda(centro, construirMenuDelDia(), 0, 0, 0.58);
+        agregarCelda(centro, construirDespachos(), 1, 0, 0.58);
+        agregarCelda(centro, construirGastos(), 0, 1, 0.42);
+        agregarCelda(centro, construirPorCliente(), 1, 1, 0.42);
         add(centro, BorderLayout.CENTER);
 
         datos.agregarOyente(this::refrescar);
@@ -97,6 +119,18 @@ class PanelPrincipal extends JPanel {
     }
 
     // ------------------------------------------------------------ construcción
+
+    private static void agregarCelda(JPanel destino, JPanel celda, int x, int y, double pesoAlto) {
+        java.awt.GridBagConstraints g = new java.awt.GridBagConstraints();
+        g.gridx = x;
+        g.gridy = y;
+        g.weightx = 0.5;
+        g.weighty = pesoAlto;
+        g.fill = java.awt.GridBagConstraints.BOTH;
+        g.insets = new java.awt.Insets(4, 4, 4, 4);
+        celda.setPreferredSize(new java.awt.Dimension(100, 100));
+        destino.add(celda, g);
+    }
 
     private JPanel construirCabecera() {
         JPanel cab = new JPanel(new BorderLayout(8, 8));
@@ -134,8 +168,16 @@ class PanelPrincipal extends JPanel {
     }
 
     private JPanel construirMenuDelDia() {
-        JPanel p = Ui.titulo(new JPanel(new BorderLayout(4, 4)), "Menú del día");
-        JPanel barra = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        JPanel p = Ui.titulo(new JPanel(new BorderLayout()), "Menú del día / de la semana");
+        pestanasMenu.addTab("Día de trabajo", construirPestanaDia());
+        pestanasMenu.addTab("Semana (lunes a domingo)", construirPestanaSemana());
+        p.add(pestanasMenu);
+        return p;
+    }
+
+    private JPanel construirPestanaDia() {
+        JPanel p = new JPanel(new BorderLayout(4, 4));
+        JPanel barra = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
         JButton btnAgregar = new JButton("Agregar");
         JButton btnQuitar = new JButton("Quitar");
         barra.add(new JLabel("Menú:"));
@@ -155,6 +197,89 @@ class PanelPrincipal extends JPanel {
         p.add(barra, BorderLayout.NORTH);
         p.add(new JScrollPane(tablaMenuDia), BorderLayout.CENTER);
         return p;
+    }
+
+    private JPanel construirPestanaSemana() {
+        JPanel p = new JPanel(new BorderLayout(4, 4));
+
+        JPanel nav = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        JButton btnAnterior = new JButton("◀");
+        JButton btnSiguiente = new JButton("▶");
+        btnAnterior.setToolTipText("Semana anterior");
+        btnSiguiente.setToolTipText("Semana siguiente");
+        btnAnterior.addActionListener(e -> spFecha.setValue(aDate(fecha.minusWeeks(1))));
+        btnSiguiente.addActionListener(e -> spFecha.setValue(aDate(fecha.plusWeeks(1))));
+        lblSemana.setFont(Ui.negrita(lblSemana.getFont(), 13f));
+        nav.add(btnAnterior);
+        nav.add(lblSemana);
+        nav.add(btnSiguiente);
+        JButton btnCopiar = new JButton("Copiar semana anterior");
+        nav.add(btnCopiar);
+
+        JPanel acciones = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        JButton btnAgregar = new JButton("Agregar a días seleccionados");
+        JButton btnQuitar = new JButton("Quitar");
+        acciones.add(new JLabel("Menú:"));
+        acciones.add(cmbMenusSemana);
+        acciones.add(btnAgregar);
+        acciones.add(btnQuitar);
+        btnAgregar.addActionListener(e -> agregarASemana());
+        btnQuitar.addActionListener(e -> quitarDeSemana());
+        btnCopiar.addActionListener(e -> {
+            LocalDate lunes = DatosNegocio.inicioSemana(fecha);
+            if (Ui.confirmar(this, "¿Copiar los menús de la semana del "
+                    + lunes.minusWeeks(1).format(DIA_CORTO) + " a esta semana?")) {
+                datos.copiarSemanaAnterior(lunes);
+            }
+        });
+
+        JPanel norte = new JPanel(new GridLayout(2, 1));
+        norte.add(nav);
+        norte.add(acciones);
+        p.add(norte, BorderLayout.NORTH);
+
+        tablaSemana.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        tablaSemana.setRowHeight(20);
+        tablaSemana.getColumnModel().getColumn(0).setPreferredWidth(110);
+        tablaSemana.getColumnModel().getColumn(1).setPreferredWidth(300);
+        tablaSemana.getColumnModel().getColumn(2).setPreferredWidth(90);
+        tablaSemana.setToolTipText("Seleccione uno o varios días (Ctrl/Shift + clic). Doble clic abre ese día.");
+        tablaSemana.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int r = tablaSemana.rowAtPoint(e.getPoint());
+                if (e.getClickCount() == 2 && r >= 0) {
+                    spFecha.setValue(aDate(diasSemana.get(r)));
+                    pestanasMenu.setSelectedIndex(0);
+                }
+            }
+        });
+        p.add(new JScrollPane(tablaSemana), BorderLayout.CENTER);
+        return p;
+    }
+
+    private List<LocalDate> diasSeleccionados() {
+        List<LocalDate> dias = new ArrayList<>();
+        for (int r : tablaSemana.getSelectedRows()) dias.add(diasSemana.get(r));
+        return dias;
+    }
+
+    private void agregarASemana() {
+        Menu m = (Menu) cmbMenusSemana.getSelectedItem();
+        if (m == null) { Ui.error(this, "Cree menús en la pestaña Menús."); return; }
+        List<LocalDate> dias = diasSeleccionados();
+        if (dias.isEmpty()) { Ui.error(this, "Seleccione uno o varios días de la tabla."); return; }
+        for (LocalDate d : dias) datos.agregarAlMenuDelDia(d, m);
+    }
+
+    private void quitarDeSemana() {
+        Menu m = (Menu) cmbMenusSemana.getSelectedItem();
+        List<LocalDate> dias = diasSeleccionados();
+        if (m == null || dias.isEmpty()) {
+            Ui.error(this, "Elija el menú y seleccione los días de los que desea quitarlo.");
+            return;
+        }
+        for (LocalDate d : dias) datos.quitarDelMenuDelDia(d, m);
     }
 
     private JPanel construirDespachos() {
@@ -182,7 +307,7 @@ class PanelPrincipal extends JPanel {
     }
 
     private JPanel construirGastos() {
-        JPanel p = Ui.titulo(new JPanel(new BorderLayout(4, 4)), "Gastos del día (comida, combustible, gas)");
+        JPanel p = Ui.titulo(new JPanel(new BorderLayout(4, 4)), "Gastos del día (ingredientes, combustible, gas, otros)");
         JPanel form = new JPanel(new GridBagLayout());
         form.add(new JLabel("Tipo:"), Ui.gbc(0, 0));
         form.add(cmbTipo, Ui.gbc(1, 0));
@@ -203,7 +328,13 @@ class PanelPrincipal extends JPanel {
         btnEliminar.addActionListener(e -> {
             int r = tablaGastos.getSelectedRow();
             if (r < 0) { Ui.error(this, "Seleccione un gasto."); return; }
-            datos.eliminarGasto(gastosDia.get(r));
+            Gasto gasto = gastosDia.get(r);
+            if (gasto.esAutomatico()) {
+                Ui.error(this, "Este gasto es el costo de ingredientes de un despacho.\n"
+                        + "Para quitarlo, anule el despacho en \"Despachar platos\".");
+                return;
+            }
+            datos.eliminarGasto(gasto);
         });
         p.add(form, BorderLayout.NORTH);
         p.add(new JScrollPane(tablaGastos), BorderLayout.CENTER);
@@ -254,6 +385,7 @@ class PanelPrincipal extends JPanel {
         }
         datos.registrarDespacho(fecha, c, m, platos);
         spPlatos.setValue(1);
+        // El costo de ingredientes queda registrado como gasto del día (ver "Gastos del día").
     }
 
     private void anularDespacho() {
@@ -261,7 +393,7 @@ class PanelPrincipal extends JPanel {
         if (r < 0) { Ui.error(this, "Seleccione un despacho."); return; }
         Despacho d = despachosDia.get(r);
         if (Ui.confirmar(this, "¿Anular el despacho de " + d.getPlatos() + " plato(s) a "
-                + datos.nombreCliente(d.getClienteId()) + "?\nLos ingredientes regresarán al inventario.")) {
+                + datos.nombreCliente(d.getClienteId()) + "?\nLos ingredientes regresarán al inventario y se quitará su costo de los gastos.")) {
             datos.eliminarDespacho(d);
         }
     }
@@ -285,6 +417,7 @@ class PanelPrincipal extends JPanel {
 
     private void refrescar() {
         recargar(modeloTodosMenus, List.copyOf(datos.getMenus()));
+        recargar(modeloMenusSemana, List.copyOf(datos.getMenus()));
         recargar(modeloClientes, List.copyOf(datos.getClientes()));
 
         // Menú del día
@@ -295,6 +428,26 @@ class PanelPrincipal extends JPanel {
             int despachados = datos.platosDelDia(fecha, m);
             modeloMenuDia.addRow(new Object[]{m.getNombre(), Ui.dinero(m.getPrecioVenta()),
                     datos.platosDisponibles(m), despachados, Ui.dinero(despachados * m.getPrecioVenta())});
+        }
+
+        // Semana (se conserva la selección de días)
+        List<LocalDate> seleccion = diasSeleccionados();
+        LocalDate lunes = DatosNegocio.inicioSemana(fecha);
+        lblSemana.setText("Semana del " + lunes.format(DIA_CORTO) + " al " + lunes.plusDays(6).format(DIA_CORTO));
+        List<LocalDate> dias = new ArrayList<>();
+        modeloSemana.setRowCount(0);
+        for (int i = 0; i < 7; i++) {
+            LocalDate d = lunes.plusDays(i);
+            dias.add(d);
+            String menus = datos.getMenuDelDia(d).stream().map(Menu::getNombre).collect(Collectors.joining(", "));
+            int platos = datos.platosDelDia(d, null);
+            modeloSemana.addRow(new Object[]{(d.equals(fecha) ? "► " : "") + DIA_SEMANA.format(d),
+                    menus.isEmpty() ? "—" : menus, platos == 0 ? "" : platos});
+        }
+        diasSemana = dias;
+        for (LocalDate d : seleccion) {
+            int idx = diasSemana.indexOf(d);
+            if (idx >= 0) tablaSemana.addRowSelectionInterval(idx, idx);
         }
 
         // Despachos
@@ -311,10 +464,12 @@ class PanelPrincipal extends JPanel {
         for (Gasto g : gastosDia) {
             modeloGastos.addRow(new Object[]{g.getTipo(), g.getDescripcion(), Ui.dinero(g.getMonto())});
         }
-        lblDesglose.setText(String.format("Comida: %s   |   Combustible: %s   |   Gas de cocina: %s",
-                Ui.dinero(datos.totalGastos(fecha, TipoGasto.COMIDA)),
+        lblDesglose.setText(String.format(
+                "Ingredientes: %s  |  Combustible: %s  |  Gas: %s  |  Otros: %s",
+                Ui.dinero(datos.totalGastos(fecha, TipoGasto.INGREDIENTES)),
                 Ui.dinero(datos.totalGastos(fecha, TipoGasto.COMBUSTIBLE)),
-                Ui.dinero(datos.totalGastos(fecha, TipoGasto.GAS))));
+                Ui.dinero(datos.totalGastos(fecha, TipoGasto.GAS)),
+                Ui.dinero(datos.totalGastos(fecha, TipoGasto.OTROS))));
 
         // Platos por cliente
         modeloPorCliente.setRowCount(0);
