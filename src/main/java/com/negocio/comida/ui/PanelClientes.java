@@ -62,6 +62,16 @@ class PanelClientes extends JPanel {
         botones.add(btnGuardar);
         botones.add(btnLimpiar);
         botones.add(btnEliminar);
+        JButton btnReporte = new JButton("Reporte de ventas (PDF / Excel)...");
+        btnReporte.setFont(Ui.negrita(btnReporte.getFont(), btnReporte.getFont().getSize2D()));
+        botones.add(btnReporte);
+        btnReporte.addActionListener(e -> {
+            if (datos.getClientes().isEmpty()) {
+                Ui.error(this, "Primero registre clientes.");
+                return;
+            }
+            new DialogoReporte(javax.swing.SwingUtilities.getWindowAncestor(this), datos, editando).setVisible(true);
+        });
         var g = Ui.gbc(0, 1);
         g.gridwidth = 6;
         form.add(botones, g);

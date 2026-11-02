@@ -15,7 +15,12 @@ Los datos se guardan automáticamente en `~/.negocio-comida/datos.dat`
 - **Inventario**: ingredientes medidos por Unidad, Libra o Kilo, con existencia y precio.
 - **Menús**: platos armados con ingredientes del inventario; calcula costo, ganancia y
   cuántos platos alcanzan con la existencia actual.
-- **Clientes**: registro de clientes y reporte de platos despachados por día.
+- **Clientes**: registro de clientes y reporte de platos despachados por día. El botón
+  **Reporte de ventas (PDF / Excel)** genera el reporte para el contador: se elige el cliente
+  (o todos), el periodo (con atajos: esta semana, quincena, este mes, mes anterior) y el formato.
+  El PDF incluye detalle por fecha, subtotales, total a pagar y espacio para firmas; el Excel
+  trae una hoja de detalle (con filtros y fórmulas de suma) y una hoja de resumen por cliente.
+  No se necesitan librerías externas.
 
 Al registrar un despacho se descuentan los ingredientes del inventario y su costo se anota
 automáticamente como gasto del día; al anularlo se devuelven los ingredientes y se quita el gasto.

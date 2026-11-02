@@ -24,6 +24,8 @@ public class DatosNegocio implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private long secuencia = 1;
+    /** Nombre del negocio que aparece en los reportes (null en datos antiguos). */
+    private String nombreNegocio;
     private final List<Ingrediente> ingredientes = new ArrayList<>();
     private final List<Menu> menus = new ArrayList<>();
     private final List<Cliente> clientes = new ArrayList<>();
@@ -57,6 +59,18 @@ public class DatosNegocio implements Serializable {
 
     private long siguienteId() {
         return secuencia++;
+    }
+
+    public String getNombreNegocio() {
+        return nombreNegocio == null ? "" : nombreNegocio;
+    }
+
+    public void setNombreNegocio(String nombreNegocio) {
+        String n = nombreNegocio == null ? "" : nombreNegocio.trim();
+        if (!n.equals(getNombreNegocio())) {
+            this.nombreNegocio = n;
+            notificar();
+        }
     }
 
     // ------------------------------------------------------------ inventario
@@ -314,6 +328,22 @@ public class DatosNegocio implements Serializable {
 
     public List<Despacho> getDespachosCliente(Cliente c) {
         return despachos.stream().filter(d -> d.getClienteId() == c.getId()).collect(Collectors.toList());
+    }
+
+    /**
+     * Despachos entre dos fechas (inclusive), de un cliente o de todos
+     * ({@code cliente == null}), ordenados por cliente y fecha.
+     */
+    public List<Despacho> despachosEntre(LocalDate desde, LocalDate hasta, Cliente cliente) {
+        List<Long> orden = clientes.stream().map(Cliente::getId).collect(Collectors.toList());
+        return despachos.stream()
+                .filter(d -> !d.getFecha().isBefore(desde) && !d.getFecha().isAfter(hasta))
+                .filter(d -> cliente == null || d.getClienteId() == cliente.getId())
+                .filter(d -> buscarCliente(d.getClienteId()).isPresent())
+                .sorted(java.util.Comparator.comparingInt((Despacho d) -> orden.indexOf(d.getClienteId()))
+                        .thenComparing(Despacho::getFecha)
+                        .thenComparingLong(Despacho::getId))
+                .collect(Collectors.toList());
     }
 
     public int platosDelDia(LocalDate fecha, Menu m) {
