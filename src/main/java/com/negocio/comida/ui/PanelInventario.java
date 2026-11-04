@@ -152,6 +152,14 @@ class PanelInventario extends JPanel {
         add(centro, BorderLayout.CENTER);
         datos.agregarOyente(this::refrescar);
         refrescar();
+        // Clic en una zona vacía (o Esc): se deselecciona el ingrediente y se ocultan sus compras.
+        Ui.deseleccionarAlHacerClicFuera(this, tabla, () -> !hayCambiosSinGuardar(), this::reiniciarFormulario);
+    }
+
+    /** true si se cambió el nombre o la unidad del ingrediente seleccionado y no se guardó. */
+    private boolean hayCambiosSinGuardar() {
+        return editando != null && (!txtNombre.getText().trim().equals(editando.getNombre())
+                || cmbUnidad.getSelectedItem() != editando.getUnidad());
     }
 
     // ------------------------------------------------------------ ingrediente

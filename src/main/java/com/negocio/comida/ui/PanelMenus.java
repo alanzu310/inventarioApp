@@ -118,6 +118,23 @@ class PanelMenus extends JPanel {
         datos.agregarOyente(this::refrescar);
         refrescar();
         limpiar();
+        // Clic en una zona vacía (o Esc): se deselecciona el menú y se limpia el editor.
+        Ui.deseleccionarAlHacerClicFuera(this, tablaMenus, () -> !hayCambiosSinGuardar(), this::limpiar);
+    }
+
+    /** true si el menú seleccionado se modificó en el editor y no se guardó. */
+    private boolean hayCambiosSinGuardar() {
+        if (editando == null) return false;
+        Double precio = Ui.leerNumero(txtPrecio.getText());
+        if (!txtNombre.getText().trim().equals(editando.getNombre())) return true;
+        if (precio == null || Math.abs(precio - editando.getPrecioVenta()) > 1e-9) return true;
+        List<ItemMenu> guardados = editando.getItems();
+        if (guardados.size() != items.size()) return true;
+        for (int i = 0; i < items.size(); i++) {
+            if (guardados.get(i).getIngredienteId() != items.get(i).getIngredienteId()
+                    || Math.abs(guardados.get(i).getCantidad() - items.get(i).getCantidad()) > 1e-9) return true;
+        }
+        return false;
     }
 
     private void agregarItem() {

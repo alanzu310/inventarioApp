@@ -1,22 +1,34 @@
 package com.negocio.comida.ui;
 
+import java.awt.AWTEvent;
 import java.awt.Component;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.Insets;
+import java.awt.Toolkit;
+import java.awt.event.MouseEvent;
 import java.text.NumberFormat;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Date;
 import java.util.Locale;
+import java.util.function.BooleanSupplier;
+import javax.swing.AbstractButton;
 import javax.swing.BorderFactory;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.JList;
 import javax.swing.JOptionPane;
+import javax.swing.JScrollBar;
 import javax.swing.JSpinner;
-import javax.swing.SpinnerDateModel;
 import javax.swing.JTable;
+import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
+import javax.swing.SpinnerDateModel;
+import javax.swing.SwingUtilities;
+import javax.swing.plaf.basic.BasicSplitPaneDivider;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.text.JTextComponent;
 
 /** Utilidades compartidas por las pestañas. */
 final class Ui {
@@ -112,5 +124,53 @@ final class Ui {
     /** Número para un campo de texto, sin separador de miles. */
     static String numeroCampo(double v) {
         return numero(v).replace(",", "");
+    }
+
+    /**
+     * Quita la selección de {@code tabla} (ejecutando {@code deseleccionar}) cuando
+     * se hace clic en una zona vacía de {@code panel}: el espacio sin filas de la
+     * tabla o el fondo de la pestaña. Los clics en botones, campos, listas u otras
+     * tablas no la quitan, porque esos controles trabajan con lo seleccionado.
+     * También se deselecciona con la tecla Esc estando en la tabla.
+     *
+     * @param permitir si devuelve false no se deselecciona (p. ej. hay cambios sin guardar)
+     */
+    static void deseleccionarAlHacerClicFuera(JComponent panel, JTable tabla, BooleanSupplier permitir,
+                                              Runnable deseleccionar) {
+        Runnable accion = () -> {
+            if (tabla.getSelectedRow() >= 0 && permitir.getAsBoolean()) deseleccionar.run();
+        };
+        Toolkit.getDefaultToolkit().addAWTEventListener(evento -> {
+            if (evento.getID() != MouseEvent.MOUSE_PRESSED || !panel.isShowing()) return;
+            MouseEvent e = (MouseEvent) evento;
+            if (e.getComponent() == null) return;
+            // Swing entrega el clic al primer componente que escucha el mouse (p. ej. el
+            // contenedor de pestañas); se busca el componente que realmente está bajo el puntero.
+            Component destino = SwingUtilities.getDeepestComponentAt(e.getComponent(), e.getX(), e.getY());
+            if (destino == null || !SwingUtilities.isDescendingFrom(destino, panel)) return;
+            if (destino == tabla) {
+                java.awt.Point p = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), tabla);
+                if (tabla.rowAtPoint(p) < 0) accion.run(); // espacio en blanco debajo de las filas
+                return;
+            }
+            for (Component c = destino; c != null && c != panel; c = c.getParent()) {
+                if (esControl(c)) return;
+            }
+            accion.run();
+        }, AWTEvent.MOUSE_EVENT_MASK);
+        tabla.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke("ESCAPE"), "deseleccionar");
+        tabla.getActionMap().put("deseleccionar", new javax.swing.AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                accion.run();
+            }
+        });
+    }
+
+    private static boolean esControl(Component c) {
+        return c instanceof AbstractButton || c instanceof JTextComponent || c instanceof JComboBox
+                || c instanceof JList || c instanceof JScrollBar || c instanceof JSpinner
+                || c instanceof JTable || c instanceof javax.swing.table.JTableHeader
+                || c instanceof BasicSplitPaneDivider || c instanceof BuscadorMenu;
     }
 }
