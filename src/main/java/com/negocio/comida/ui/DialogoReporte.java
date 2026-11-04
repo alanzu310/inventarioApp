@@ -6,7 +6,6 @@ import com.negocio.comida.reporte.ExportadorExcel;
 import com.negocio.comida.reporte.ExportadorPdf;
 import com.negocio.comida.reporte.ReporteVentas;
 import java.awt.BorderLayout;
-import java.awt.Desktop;
 import java.awt.FlowLayout;
 import java.awt.GridBagLayout;
 import java.awt.Window;
@@ -16,22 +15,18 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
 import java.util.Date;
-import java.util.prefs.Preferences;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
-import javax.swing.JFileChooser;
 import javax.swing.JLabel;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
 import javax.swing.SpinnerDateModel;
-import javax.swing.filechooser.FileNameExtensionFilter;
 
 /** Diálogo para exportar el reporte de ventas a PDF o Excel. */
 class DialogoReporte extends JDialog {
@@ -194,21 +189,10 @@ class DialogoReporte extends JDialog {
         }
 
         boolean pdf = rbPdf.isSelected();
-        String ext = pdf ? "pdf" : "xlsx";
-        Preferences prefs = Preferences.userNodeForPackage(DialogoReporte.class);
-        JFileChooser fc = new JFileChooser(prefs.get("carpetaReportes", System.getProperty("user.home")));
-        fc.setDialogTitle("Guardar reporte");
-        fc.setFileFilter(pdf ? new FileNameExtensionFilter("Documento PDF (*.pdf)", "pdf")
-                : new FileNameExtensionFilter("Libro de Excel (*.xlsx)", "xlsx"));
-        fc.setSelectedFile(new File(fc.getCurrentDirectory(), r.nombreArchivo() + "." + ext));
-        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
-
-        File archivo = fc.getSelectedFile();
-        if (!archivo.getName().toLowerCase().endsWith("." + ext)) {
-            archivo = new File(archivo.getParentFile(), archivo.getName() + "." + ext);
-        }
-        if (archivo.exists() && !Ui.confirmar(this, archivo.getName() + " ya existe. ¿Reemplazarlo?")) return;
-
+        File archivo = pdf
+                ? Ui.elegirDondeGuardar(this, "Guardar reporte", r.nombreArchivo(), "pdf", "Documento PDF")
+                : Ui.elegirDondeGuardar(this, "Guardar reporte", r.nombreArchivo(), "xlsx", "Libro de Excel");
+        if (archivo == null) return;
         try {
             if (pdf) ExportadorPdf.exportar(r, archivo.toPath());
             else ExportadorExcel.exportar(r, archivo.toPath());
@@ -217,24 +201,7 @@ class DialogoReporte extends JDialog {
                     + "\n\nSi el archivo está abierto en otro programa, ciérrelo e intente de nuevo.");
             return;
         }
-        if (archivo.getParentFile() != null) prefs.put("carpetaReportes", archivo.getParent());
-
-        int op = JOptionPane.showOptionDialog(this, "Reporte guardado en:\n" + archivo.getAbsolutePath(),
-                "Reporte generado", JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null,
-                new Object[]{"Abrir reporte", "Cerrar"}, "Abrir reporte");
-        if (op == 0) abrir(archivo);
+        Ui.ofrecerAbrir(this, "Reporte generado", archivo);
         dispose();
-    }
-
-    private void abrir(File archivo) {
-        try {
-            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
-                Desktop.getDesktop().open(archivo);
-                return;
-            }
-        } catch (IOException | UnsupportedOperationException ignored) {
-            // se informa abajo
-        }
-        Ui.error(this, "No se pudo abrir automáticamente. Ábralo desde:\n" + archivo.getAbsolutePath());
     }
 }

@@ -173,4 +173,61 @@ final class Ui {
                 || c instanceof JTable || c instanceof javax.swing.table.JTableHeader
                 || c instanceof BasicSplitPaneDivider || c instanceof BuscadorMenu;
     }
+
+    // ------------------------------------------------------------ archivos
+
+    private static final String CARPETA = "carpetaReportes";
+
+    /**
+     * Pide dónde guardar un archivo, recordando la última carpeta usada. Agrega la
+     * extensión si falta y confirma antes de reemplazar. null si se cancela.
+     */
+    static java.io.File elegirDondeGuardar(Component padre, String titulo, String nombreSugerido,
+                                           String extension, String descripcion) {
+        java.util.prefs.Preferences prefs = java.util.prefs.Preferences.userNodeForPackage(Ui.class);
+        javax.swing.JFileChooser fc = new javax.swing.JFileChooser(prefs.get(CARPETA, System.getProperty("user.home")));
+        fc.setDialogTitle(titulo);
+        fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                descripcion + " (*." + extension + ")", extension));
+        fc.setSelectedFile(new java.io.File(fc.getCurrentDirectory(), nombreSugerido + "." + extension));
+        if (fc.showSaveDialog(padre) != javax.swing.JFileChooser.APPROVE_OPTION) return null;
+        java.io.File archivo = fc.getSelectedFile();
+        if (!archivo.getName().toLowerCase().endsWith("." + extension)) {
+            archivo = new java.io.File(archivo.getParentFile(), archivo.getName() + "." + extension);
+        }
+        if (archivo.exists() && !confirmar(padre, archivo.getName() + " ya existe. ¿Reemplazarlo?")) return null;
+        if (archivo.getParentFile() != null) prefs.put(CARPETA, archivo.getParent());
+        return archivo;
+    }
+
+    /** Pide un archivo para abrir, recordando la última carpeta usada. null si se cancela. */
+    static java.io.File elegirParaAbrir(Component padre, String titulo, String extension, String descripcion) {
+        java.util.prefs.Preferences prefs = java.util.prefs.Preferences.userNodeForPackage(Ui.class);
+        javax.swing.JFileChooser fc = new javax.swing.JFileChooser(prefs.get(CARPETA, System.getProperty("user.home")));
+        fc.setDialogTitle(titulo);
+        fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                descripcion + " (*." + extension + ")", extension));
+        if (fc.showOpenDialog(padre) != javax.swing.JFileChooser.APPROVE_OPTION) return null;
+        java.io.File archivo = fc.getSelectedFile();
+        if (archivo.getParentFile() != null) prefs.put(CARPETA, archivo.getParent());
+        return archivo;
+    }
+
+    /** Avisa dónde quedó el archivo y ofrece abrirlo con el programa del sistema. */
+    static void ofrecerAbrir(Component padre, String titulo, java.io.File archivo) {
+        int op = JOptionPane.showOptionDialog(padre, "Guardado en:\n" + archivo.getAbsolutePath(), titulo,
+                JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null,
+                new Object[]{"Abrir", "Cerrar"}, "Abrir");
+        if (op != 0) return;
+        try {
+            if (java.awt.Desktop.isDesktopSupported()
+                    && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.OPEN)) {
+                java.awt.Desktop.getDesktop().open(archivo);
+                return;
+            }
+        } catch (java.io.IOException | UnsupportedOperationException ignored) {
+            // se informa abajo
+        }
+        error(padre, "No se pudo abrir automáticamente. Ábralo desde:\n" + archivo.getAbsolutePath());
+    }
 }

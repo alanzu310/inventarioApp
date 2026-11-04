@@ -92,6 +92,63 @@ public class DatosNegocio implements Serializable {
         }
     }
 
+    /**
+     * Reemplaza todos los datos por los de {@code otro} (al importar un respaldo).
+     * Se conserva este mismo objeto para que las pestañas sigan conectadas.
+     */
+    public void reemplazarCon(DatosNegocio otro) {
+        secuencia = otro.secuencia;
+        nombreNegocio = otro.nombreNegocio;
+        ingredientes.clear();
+        ingredientes.addAll(otro.ingredientes);
+        menus.clear();
+        menus.addAll(otro.menus);
+        clientes.clear();
+        clientes.addAll(otro.clientes);
+        gastos.clear();
+        gastos.addAll(otro.gastos);
+        despachos.clear();
+        despachos.addAll(otro.despachos);
+        menuDelDia.clear();
+        menuDelDia.putAll(otro.menuDelDia);
+        proveedores = new ArrayList<>(otro.proveedores);
+        lotes = new ArrayList<>(otro.lotes);
+        notificar();
+    }
+
+    // ------------------------------------------------------------ consultas generales (reportes)
+
+    public List<Despacho> getDespachos() {
+        return Collections.unmodifiableList(despachos);
+    }
+
+    public List<Gasto> getGastos() {
+        return Collections.unmodifiableList(gastos);
+    }
+
+    public List<Lote> getLotes() {
+        return Collections.unmodifiableList(lotes);
+    }
+
+    /** Fechas con menús planificados → ids de menú. */
+    public Map<LocalDate, List<Long>> getPlanificacion() {
+        return Collections.unmodifiableMap(menuDelDia);
+    }
+
+    /** Costo de ingredientes registrado para un despacho (0 si no tiene). */
+    public double costoDespacho(Despacho d) {
+        return gastos.stream().filter(g -> g.getDespachoId() == d.getId()).mapToDouble(Gasto::getMonto).sum();
+    }
+
+    /** Fecha más antigua con algún movimiento (despacho, gasto o compra); hoy si no hay. */
+    public LocalDate primeraFecha() {
+        LocalDate min = LocalDate.now();
+        for (Despacho d : despachos) if (d.getFecha().isBefore(min)) min = d.getFecha();
+        for (Gasto g : gastos) if (g.getFecha().isBefore(min)) min = g.getFecha();
+        for (Lote l : lotes) if (l.getFecha().isBefore(min)) min = l.getFecha();
+        return min;
+    }
+
     // ------------------------------------------------------------ inventario
 
     public List<Ingrediente> getIngredientes() {

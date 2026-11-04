@@ -7,6 +7,21 @@
 Los datos se guardan automáticamente en `~/.negocio-comida/datos.dat`
 (se puede cambiar con `-Dnegocio.datos=/ruta/archivo.dat`).
 
+## Llevar los datos a otra computadora
+1. En la computadora actual: **Archivo → Exportar datos (respaldo)...** y guarde el archivo `.dat`.
+2. Copie ese archivo a la otra computadora (memoria USB, correo, nube...).
+3. En la otra computadora instale y abra el programa: **Archivo → Importar datos...** y elija el archivo.
+
+Antes de importar se muestra qué contiene el respaldo y se guarda automáticamente una copia de los
+datos actuales (`respaldo-antes-de-importar_<fecha>.dat`, en la misma carpeta de los datos), por si
+hay que volver atrás. También se pueden importar respaldos hechos con versiones anteriores.
+
+## Reporte completo en Excel
+**Archivo → Reporte completo en Excel...** genera un libro con una hoja para cada tema: Resumen
+(ventas, gastos por tipo, utilidad, compras e inventario), Ventas por día, Despachos (con costo
+y ganancia), Gastos, Clientes, Menús, Inventario, Compras, Proveedores y Planificación. Se elige el
+periodo (por defecto, todo el historial); inventario y menús muestran el estado actual.
+
 ## Pestañas
 - **Principal**: fecha de trabajo, planificación de los menús de la **semana** (lunes a domingo,
   con opción de copiar la semana anterior), despacho de platos a clientes (se puede despachar
