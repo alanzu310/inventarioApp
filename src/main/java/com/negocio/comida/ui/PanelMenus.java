@@ -193,7 +193,7 @@ class PanelMenus extends JPanel {
         items.removeIf(it -> datos.buscarIngrediente(it.getIngredienteId()).isEmpty());
         for (ItemMenu it : items) {
             Ingrediente i = datos.buscarIngrediente(it.getIngredienteId()).orElseThrow();
-            double c = i.getPrecioPorUnidad() * it.getCantidad();
+            double c = datos.costoDe(i, it.getCantidad());
             costo += c;
             modeloItems.addRow(new Object[]{i.getNombre(),
                     Ui.numero(it.getCantidad()) + " " + i.getUnidad().getAbreviatura(), Ui.dinero(c)});

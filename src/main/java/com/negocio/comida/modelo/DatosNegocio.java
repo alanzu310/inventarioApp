@@ -7,6 +7,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,7 +18,7 @@ import java.util.stream.Collectors;
 
 /**
  * Contiene todos los datos del negocio y la lógica que los relaciona
- * (inventario ↔ menús ↔ despachos ↔ clientes). Cada cambio notifica a los
+ * (compras/proveedores ↔ inventario ↔ menús ↔ despachos ↔ clientes). Cada cambio notifica a los
  * oyentes para que todas las pestañas se refresquen y los datos se guarden.
  */
 public class DatosNegocio implements Serializable {
@@ -32,13 +33,31 @@ public class DatosNegocio implements Serializable {
     private final List<Gasto> gastos = new ArrayList<>();
     private final List<Despacho> despachos = new ArrayList<>();
     private final Map<LocalDate, List<Long>> menuDelDia = new HashMap<>();
+    // No son final: en datos de versiones anteriores llegan como null y se crean al cargar.
+    private List<Proveedor> proveedores = new ArrayList<>();
+    private List<Lote> lotes = new ArrayList<>();
+
+    /** Margen para comparar cantidades decimales. */
+    private static final double EPS = 1e-9;
 
     private transient List<Runnable> oyentes;
 
-    /** Convierte datos de versiones anteriores (gastos "Comida" → "Otros"). */
+    /**
+     * Convierte datos de versiones anteriores: gastos "Comida" → "Otros", y la
+     * existencia/precio que tenía cada ingrediente → una compra "Sin proveedor".
+     */
     @SuppressWarnings("deprecation")
     private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
         in.defaultReadObject();
+        if (proveedores == null) proveedores = new ArrayList<>();
+        if (lotes == null) {
+            lotes = new ArrayList<>();
+            for (Ingrediente i : ingredientes) {
+                lotes.add(new Lote(siguienteId(), i.getId(), 0, LocalDate.now(),
+                        Math.max(0, i.cantidadAnterior()), i.precioAnterior()));
+                i.limpiarDatosAnteriores();
+            }
+        }
         gastos.replaceAll(g -> g.getTipo() == TipoGasto.COMIDA
                 ? new Gasto(g.getId(), g.getFecha(), TipoGasto.OTROS, g.getDescripcion(), g.getMonto(),
                         g.getDespachoId())
@@ -83,23 +102,16 @@ public class DatosNegocio implements Serializable {
         return ingredientes.stream().filter(i -> i.getId() == id).findFirst();
     }
 
-    public Ingrediente agregarIngrediente(String nombre, Unidad unidad, double cantidad, double precio) {
-        Ingrediente i = new Ingrediente(siguienteId(), nombre, unidad, cantidad, precio);
+    public Ingrediente agregarIngrediente(String nombre, Unidad unidad) {
+        Ingrediente i = new Ingrediente(siguienteId(), nombre, unidad);
         ingredientes.add(i);
         notificar();
         return i;
     }
 
-    public void actualizarIngrediente(Ingrediente i, String nombre, Unidad unidad, double cantidad, double precio) {
+    public void actualizarIngrediente(Ingrediente i, String nombre, Unidad unidad) {
         i.setNombre(nombre);
         i.setUnidad(unidad);
-        i.setCantidad(cantidad);
-        i.setPrecioPorUnidad(precio);
-        notificar();
-    }
-
-    public void reabastecer(Ingrediente i, double cantidad) {
-        i.setCantidad(i.getCantidad() + cantidad);
         notificar();
     }
 
@@ -110,9 +122,211 @@ public class DatosNegocio implements Serializable {
                 .collect(Collectors.toList());
     }
 
+    /** Elimina el ingrediente junto con su historial de compras. */
     public void eliminarIngrediente(Ingrediente i) {
         ingredientes.remove(i);
+        lotes.removeIf(l -> l.getIngredienteId() == i.getId());
         notificar();
+    }
+
+    /** Existencia total: lo que queda de todas sus compras. */
+    public double existencia(Ingrediente i) {
+        return lotes.stream().filter(l -> l.getIngredienteId() == i.getId())
+                .mapToDouble(Lote::getCantidadRestante).sum();
+    }
+
+    /** Valor de la existencia, cada compra a su propio precio. */
+    public double valorExistencia(Ingrediente i) {
+        return lotes.stream().filter(l -> l.getIngredienteId() == i.getId())
+                .mapToDouble(Lote::getValorRestante).sum();
+    }
+
+    /** Costo promedio por unidad de lo que hay en existencia (0 si no hay). */
+    public double costoPromedio(Ingrediente i) {
+        double e = existencia(i);
+        return e > EPS ? valorExistencia(i) / e : 0;
+    }
+
+    /** Precio de la compra más reciente (0 si nunca se compró). */
+    public double ultimoPrecio(Ingrediente i) {
+        return compras(i).stream().findFirst().map(Lote::getPrecioPorUnidad).orElse(0.0);
+    }
+
+    /**
+     * Costo de usar {@code cantidad} del ingrediente ahora mismo: se toma de las
+     * compras más antiguas primero; si no alcanza, lo que falta se valora al
+     * precio de la última compra.
+     */
+    public double costoDe(Ingrediente i, double cantidad) {
+        double falta = cantidad;
+        double costo = 0;
+        for (Lote l : lotesDisponibles(i.getId())) {
+            if (falta <= EPS) break;
+            double usa = Math.min(falta, l.getCantidadRestante());
+            costo += usa * l.getPrecioPorUnidad();
+            falta -= usa;
+        }
+        if (falta > EPS) costo += falta * ultimoPrecio(i);
+        return costo;
+    }
+
+    /** Compras con existencia, de la más antigua a la más reciente (orden PEPS). */
+    private List<Lote> lotesDisponibles(long ingredienteId) {
+        return lotes.stream()
+                .filter(l -> l.getIngredienteId() == ingredienteId && l.getCantidadRestante() > EPS)
+                .sorted(Comparator.comparing(Lote::getFecha).thenComparingLong(Lote::getId))
+                .collect(Collectors.toList());
+    }
+
+    private Optional<Lote> buscarLote(long id) {
+        return lotes.stream().filter(l -> l.getId() == id).findFirst();
+    }
+
+    // ------------------------------------------------------------ compras
+
+    /** Compras de un ingrediente, de la más reciente a la más antigua. */
+    public List<Lote> compras(Ingrediente i) {
+        return lotes.stream().filter(l -> l.getIngredienteId() == i.getId())
+                .sorted(Comparator.comparing(Lote::getFecha).thenComparingLong(Lote::getId).reversed())
+                .collect(Collectors.toList());
+    }
+
+    /** Compras hechas a un proveedor, de la más reciente a la más antigua. */
+    public List<Lote> compras(Proveedor p) {
+        return lotes.stream().filter(l -> l.getProveedorId() == p.getId())
+                .sorted(Comparator.comparing(Lote::getFecha).thenComparingLong(Lote::getId).reversed())
+                .collect(Collectors.toList());
+    }
+
+    public Lote registrarCompra(Ingrediente i, Proveedor p, LocalDate fecha, double cantidad, double precioPorUnidad) {
+        Lote l = new Lote(siguienteId(), i.getId(), p == null ? 0 : p.getId(), fecha, cantidad, precioPorUnidad);
+        lotes.add(l);
+        notificar();
+        return l;
+    }
+
+    /**
+     * Corrige una compra. Lo que ya se usó de ella se respeta: la cantidad
+     * comprada no puede quedar por debajo de lo usado.
+     */
+    public void editarCompra(Lote l, Proveedor p, LocalDate fecha, double cantidad, double precioPorUnidad) {
+        double usada = l.getCantidadUsada();
+        if (cantidad + EPS < usada) {
+            throw new IllegalArgumentException("Ya se usaron " + usada + " de esta compra.");
+        }
+        l.setProveedorId(p == null ? 0 : p.getId());
+        l.setFecha(fecha);
+        l.setCantidadComprada(cantidad);
+        l.setPrecioPorUnidad(precioPorUnidad);
+        l.setCantidadRestante(Math.max(0, cantidad - usada));
+        notificar();
+    }
+
+    /** Ajusta lo que queda físicamente de una compra (merma, conteo, etc.). */
+    public void ajustarRestante(Lote l, double restante) {
+        if (restante < 0 || restante > l.getCantidadComprada() + EPS) {
+            throw new IllegalArgumentException("Debe estar entre 0 y la cantidad comprada.");
+        }
+        l.setCantidadRestante(Math.min(restante, l.getCantidadComprada()));
+        notificar();
+    }
+
+    /** Solo se pueden borrar compras de las que no se ha usado nada. */
+    public boolean puedeEliminarCompra(Lote l) {
+        return l.getCantidadUsada() <= EPS;
+    }
+
+    public void eliminarCompra(Lote l) {
+        if (!puedeEliminarCompra(l)) {
+            throw new IllegalArgumentException("Ya se usó parte de esta compra.");
+        }
+        lotes.remove(l);
+        notificar();
+    }
+
+    /** Resumen de precios de un ingrediente por proveedor (el más barato primero). */
+    public List<PrecioProveedor> preciosPorProveedor(Ingrediente i) {
+        Map<Long, PrecioProveedor> res = new LinkedHashMap<>();
+        for (Lote l : compras(i)) { // de la más reciente a la más antigua
+            PrecioProveedor pp = res.computeIfAbsent(l.getProveedorId(),
+                    id -> new PrecioProveedor(nombreProveedor(id), l.getPrecioPorUnidad(), l.getFecha()));
+            pp.agregar(l);
+        }
+        List<PrecioProveedor> lista = new ArrayList<>(res.values());
+        lista.sort(Comparator.comparingDouble(PrecioProveedor::getUltimoPrecio));
+        return lista;
+    }
+
+    /** Precios de un proveedor para un ingrediente. */
+    public static final class PrecioProveedor {
+        private final String proveedor;
+        private final double ultimoPrecio;
+        private final LocalDate ultimaCompra;
+        private double precioMinimo = Double.MAX_VALUE;
+        private double cantidadTotal;
+        private int compras;
+
+        PrecioProveedor(String proveedor, double ultimoPrecio, LocalDate ultimaCompra) {
+            this.proveedor = proveedor;
+            this.ultimoPrecio = ultimoPrecio;
+            this.ultimaCompra = ultimaCompra;
+        }
+
+        void agregar(Lote l) {
+            precioMinimo = Math.min(precioMinimo, l.getPrecioPorUnidad());
+            cantidadTotal += l.getCantidadComprada();
+            compras++;
+        }
+
+        public String getProveedor() { return proveedor; }
+        public double getUltimoPrecio() { return ultimoPrecio; }
+        public LocalDate getUltimaCompra() { return ultimaCompra; }
+        public double getPrecioMinimo() { return precioMinimo; }
+        public double getCantidadTotal() { return cantidadTotal; }
+        public int getCompras() { return compras; }
+    }
+
+    // ------------------------------------------------------------ proveedores
+
+    public List<Proveedor> getProveedores() {
+        return Collections.unmodifiableList(proveedores);
+    }
+
+    public Optional<Proveedor> buscarProveedor(long id) {
+        return proveedores.stream().filter(p -> p.getId() == id).findFirst();
+    }
+
+    public String nombreProveedor(long id) {
+        if (id == 0) return "Sin proveedor";
+        return buscarProveedor(id).map(Proveedor::getNombre).orElse("(eliminado)");
+    }
+
+    public Proveedor agregarProveedor(String nombre, String telefono) {
+        Proveedor p = new Proveedor(siguienteId(), nombre, telefono);
+        proveedores.add(p);
+        notificar();
+        return p;
+    }
+
+    public void actualizarProveedor(Proveedor p, String nombre, String telefono) {
+        p.setNombre(nombre);
+        p.setTelefono(telefono);
+        notificar();
+    }
+
+    /** Un proveedor con compras registradas no se puede borrar (se perdería el historial). */
+    public boolean tieneCompras(Proveedor p) {
+        return lotes.stream().anyMatch(l -> l.getProveedorId() == p.getId());
+    }
+
+    public void eliminarProveedor(Proveedor p) {
+        if (tieneCompras(p)) throw new IllegalArgumentException("El proveedor tiene compras registradas.");
+        proveedores.remove(p);
+        notificar();
+    }
+
+    public double totalComprado(Proveedor p) {
+        return lotes.stream().filter(l -> l.getProveedorId() == p.getId()).mapToDouble(Lote::getTotalCompra).sum();
     }
 
     // ------------------------------------------------------------ menús
@@ -144,12 +358,12 @@ public class DatosNegocio implements Serializable {
         notificar();
     }
 
-    /** Costo de ingredientes de un plato. */
+    /** Costo de ingredientes del próximo plato (según las compras en existencia, PEPS). */
     public double costoPlato(Menu m) {
         double total = 0;
         for (ItemMenu it : m.getItems()) {
             total += buscarIngrediente(it.getIngredienteId())
-                    .map(i -> i.getPrecioPorUnidad() * it.getCantidad()).orElse(0.0);
+                    .map(i -> costoDe(i, it.getCantidad())).orElse(0.0);
         }
         return total;
     }
@@ -161,7 +375,7 @@ public class DatosNegocio implements Serializable {
         for (ItemMenu it : m.getItems()) {
             Optional<Ingrediente> ing = buscarIngrediente(it.getIngredienteId());
             if (ing.isEmpty() || it.getCantidad() <= 0) continue;
-            max = Math.min(max, (int) Math.floor(ing.get().getCantidad() / it.getCantidad() + 1e-9));
+            max = Math.min(max, (int) Math.floor(existencia(ing.get()) / it.getCantidad() + 1e-9));
         }
         return max == Integer.MAX_VALUE ? 0 : Math.max(max, 0);
     }
@@ -172,9 +386,10 @@ public class DatosNegocio implements Serializable {
         for (ItemMenu it : m.getItems()) {
             buscarIngrediente(it.getIngredienteId()).ifPresent(i -> {
                 double necesario = it.getCantidad() * platos;
-                if (i.getCantidad() + 1e-9 < necesario) {
+                double hay = existencia(i);
+                if (hay + EPS < necesario) {
                     faltan.add(String.format("%s: necesita %.2f %s, hay %.2f",
-                            i.getNombre(), necesario, i.getUnidad().getAbreviatura(), i.getCantidad()));
+                            i.getNombre(), necesario, i.getUnidad().getAbreviatura(), hay));
                 }
             });
         }
@@ -289,18 +504,30 @@ public class DatosNegocio implements Serializable {
     // ------------------------------------------------------------ despachos
 
     /**
-     * Registra platos entregados a un cliente, descuenta del inventario los
-     * ingredientes usados (sin dejar existencias negativas) y anota su costo
-     * como gasto del día.
+     * Registra platos entregados a un cliente. Los ingredientes se descuentan de
+     * las compras más antiguas primero (PEPS) y su costo real se anota como
+     * gasto del día. Si no alcanza la existencia, lo que falta se valora al
+     * precio de la última compra (la existencia no queda negativa).
      */
     public void registrarDespacho(LocalDate fecha, Cliente c, Menu m, int platos) {
-        double costo = costoPlato(m) * platos;
+        List<Consumo> consumos = new ArrayList<>();
+        double costo = 0;
         for (ItemMenu it : m.getItems()) {
-            buscarIngrediente(it.getIngredienteId()).ifPresent(i ->
-                    i.setCantidad(Math.max(0, i.getCantidad() - it.getCantidad() * platos)));
+            Optional<Ingrediente> ing = buscarIngrediente(it.getIngredienteId());
+            if (ing.isEmpty()) continue;
+            double falta = it.getCantidad() * platos;
+            for (Lote l : lotesDisponibles(ing.get().getId())) {
+                if (falta <= EPS) break;
+                double usa = Math.min(falta, l.getCantidadRestante());
+                l.setCantidadRestante(l.getCantidadRestante() - usa);
+                consumos.add(new Consumo(l.getId(), usa, usa * l.getPrecioPorUnidad()));
+                costo += usa * l.getPrecioPorUnidad();
+                falta -= usa;
+            }
+            if (falta > EPS) costo += falta * ultimoPrecio(ing.get());
         }
         Despacho d = new Despacho(siguienteId(), fecha, c.getId(), m.getId(), m.getNombre(),
-                platos, m.getPrecioVenta());
+                platos, m.getPrecioVenta(), consumos);
         despachos.add(d);
         if (costo > 0) {
             gastos.add(new Gasto(siguienteId(), fecha, TipoGasto.INGREDIENTES,
@@ -309,15 +536,31 @@ public class DatosNegocio implements Serializable {
         notificar();
     }
 
-    /** Elimina un despacho, devuelve al inventario los ingredientes y quita su gasto. */
+    /**
+     * Elimina un despacho, devuelve los ingredientes a las mismas compras de las
+     * que salieron y quita su gasto.
+     */
     public void eliminarDespacho(Despacho d) {
         gastos.removeIf(g -> g.getDespachoId() == d.getId());
-        buscarMenu(d.getMenuId()).ifPresent(m -> {
-            for (ItemMenu it : m.getItems()) {
-                buscarIngrediente(it.getIngredienteId()).ifPresent(i ->
-                        i.setCantidad(i.getCantidad() + it.getCantidad() * d.getPlatos()));
+        if (d.getConsumos() != null) {
+            for (Consumo co : d.getConsumos()) {
+                buscarLote(co.getLoteId()).ifPresent(l -> l.setCantidadRestante(
+                        Math.min(l.getCantidadComprada(), l.getCantidadRestante() + co.getCantidad())));
             }
-        });
+        } else {
+            // Despacho de una versión anterior: se devuelve a la compra más reciente.
+            buscarMenu(d.getMenuId()).ifPresent(m -> {
+                for (ItemMenu it : m.getItems()) {
+                    buscarIngrediente(it.getIngredienteId())
+                            .flatMap(i -> compras(i).stream().findFirst())
+                            .ifPresent(l -> {
+                                double nuevo = l.getCantidadRestante() + it.getCantidad() * d.getPlatos();
+                                if (nuevo > l.getCantidadComprada()) l.setCantidadComprada(nuevo);
+                                l.setCantidadRestante(nuevo);
+                            });
+                }
+            });
+        }
         despachos.remove(d);
         notificar();
     }

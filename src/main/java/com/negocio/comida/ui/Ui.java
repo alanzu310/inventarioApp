@@ -5,10 +5,15 @@ import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.Insets;
 import java.text.NumberFormat;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Date;
 import java.util.Locale;
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
 import javax.swing.JOptionPane;
+import javax.swing.JSpinner;
+import javax.swing.SpinnerDateModel;
 import javax.swing.JTable;
 import javax.swing.ListSelectionModel;
 import javax.swing.table.DefaultTableModel;
@@ -87,5 +92,25 @@ final class Ui {
     static boolean confirmar(Component padre, String msg) {
         return JOptionPane.showConfirmDialog(padre, msg, "Confirmar",
                 JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
+    }
+
+    static JSpinner spinnerFecha(LocalDate inicial) {
+        JSpinner s = new JSpinner(new SpinnerDateModel());
+        s.setEditor(new JSpinner.DateEditor(s, "dd/MM/yyyy"));
+        ponerFecha(s, inicial);
+        return s;
+    }
+
+    static LocalDate leerFecha(JSpinner s) {
+        return ((Date) s.getValue()).toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+    }
+
+    static void ponerFecha(JSpinner s, LocalDate d) {
+        s.setValue(Date.from(d.atStartOfDay(ZoneId.systemDefault()).toInstant()));
+    }
+
+    /** Número para un campo de texto, sin separador de miles. */
+    static String numeroCampo(double v) {
+        return numero(v).replace(",", "");
     }
 }
