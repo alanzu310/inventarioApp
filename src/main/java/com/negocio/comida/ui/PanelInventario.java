@@ -22,6 +22,8 @@ import javax.swing.JSplitPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 
 /**
@@ -43,6 +45,8 @@ class PanelInventario extends JPanel {
     private final JTable tabla = Ui.tabla(modelo);
     private final JLabel lblValor = new JLabel();
     private List<Ingrediente> filas = List.of();
+    private final JTextField txtBuscar = new JTextField(22);
+    private final JLabel lblConteo = new JLabel();
     private Ingrediente editando;
 
     // Compras del ingrediente seleccionado
@@ -80,6 +84,29 @@ class PanelInventario extends JPanel {
 
         // ---- tabla de ingredientes
         JPanel panelIngredientes = Ui.titulo(new JPanel(new BorderLayout(4, 4)), "Ingredientes");
+        JPanel barraBuscar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JLabel lblBuscar = new JLabel("Buscar:");
+        lblBuscar.setFont(Ui.negrita(lblBuscar.getFont(), lblBuscar.getFont().getSize2D()));
+        JButton btnBorrarBusqueda = new JButton("✕");
+        btnBorrarBusqueda.setToolTipText("Borrar búsqueda");
+        txtBuscar.setToolTipText("Escriba el nombre o una palabra del ingrediente (no importan mayúsculas ni tildes)");
+        barraBuscar.add(lblBuscar);
+        barraBuscar.add(txtBuscar);
+        barraBuscar.add(btnBorrarBusqueda);
+        barraBuscar.add(lblConteo);
+        btnBorrarBusqueda.addActionListener(e -> {
+            txtBuscar.setText("");
+            txtBuscar.requestFocusInWindow();
+        });
+        txtBuscar.addActionListener(e -> { // Enter: selecciona el primer resultado
+            if (!filas.isEmpty()) tabla.setRowSelectionInterval(0, 0);
+        });
+        txtBuscar.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { refrescar(); }
+            @Override public void removeUpdate(DocumentEvent e) { refrescar(); }
+            @Override public void changedUpdate(DocumentEvent e) { refrescar(); }
+        });
+        panelIngredientes.add(barraBuscar, BorderLayout.NORTH);
         panelIngredientes.add(new JScrollPane(tabla), BorderLayout.CENTER);
         JPanel pie = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         pie.add(new JLabel("Valor total del inventario:"));
@@ -141,6 +168,7 @@ class PanelInventario extends JPanel {
         }
         Unidad u = (Unidad) cmbUnidad.getSelectedItem();
         if (editando == null) {
+            txtBuscar.setText(""); // para que el nuevo ingrediente se vea en la tabla
             Ingrediente nuevo = datos.agregarIngrediente(nombre, u);
             limpiar();
             seleccionar(nuevo);
@@ -284,7 +312,11 @@ class PanelInventario extends JPanel {
 
     private void refrescar() {
         Ingrediente sel = editando;
-        filas = List.copyOf(datos.getIngredientes());
+        filas = filtrar(datos.getIngredientes());
+        int totalIngredientes = datos.getIngredientes().size();
+        lblConteo.setText(txtBuscar.getText().isBlank() ? ""
+                : filas.isEmpty() ? "Ningún ingrediente coincide"
+                : "Mostrando " + filas.size() + " de " + totalIngredientes);
         modelo.setRowCount(0);
         double total = 0;
         for (Ingrediente i : filas) {
@@ -302,6 +334,7 @@ class PanelInventario extends JPanel {
                     Ui.dinero(valor)});
             total += valor;
         }
+        total = datos.getIngredientes().stream().mapToDouble(datos::valorExistencia).sum();
         lblValor.setText(Ui.dinero(total));
         if (sel != null && filas.contains(sel)) {
             editando = sel;
@@ -310,5 +343,17 @@ class PanelInventario extends JPanel {
         } else {
             reiniciarFormulario();
         }
+    }
+
+    /** Ingredientes cuyo nombre contiene todas las palabras buscadas. */
+    private List<Ingrediente> filtrar(List<Ingrediente> todos) {
+        String q = BuscadorMenu.normalizar(txtBuscar.getText());
+        if (q.isEmpty()) return List.copyOf(todos);
+        String[] palabras = q.split(" ");
+        return todos.stream().filter(i -> {
+            String nombre = BuscadorMenu.normalizar(i.getNombre());
+            for (String p : palabras) if (!nombre.contains(p)) return false;
+            return true;
+        }).collect(Collectors.toList());
     }
 }
