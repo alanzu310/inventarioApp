@@ -8,10 +8,10 @@ Los datos se guardan automáticamente en `~/.negocio-comida/datos.dat`
 (se puede cambiar con `-Dnegocio.datos=/ruta/archivo.dat`).
 
 ## Pestañas
-- **Principal (día)**: fecha de trabajo, menú del día y **planificación de la semana**
-  (lunes a domingo, con opción de copiar la semana anterior), despacho de platos a clientes,
-  gastos del día (otros, combustible, gas de cocina y costo de ingredientes), platos
-  despachados por cliente y resumen (platos, ventas, gastos, utilidad).
+- **Principal**: fecha de trabajo, planificación de los menús de la **semana** (lunes a domingo,
+  con opción de copiar la semana anterior), despacho de platos a clientes (se puede despachar
+  cualquier menú registrado), gastos del día (otros, combustible, gas de cocina y costo de
+  ingredientes), platos despachados por cliente y resumen (platos, ventas, gastos, utilidad).
 - **Inventario**: ingredientes medidos por Unidad, Libra o Kilo. La existencia y el costo salen
   de las **compras**: cada compra guarda su proveedor, fecha, cantidad y su propio precio (se puede
   escribir el precio por unidad o el total pagado). Comprar el mismo producto más barato a otro

@@ -24,7 +24,7 @@ public class VentanaPrincipal extends JFrame {
         });
 
         JTabbedPane pestanas = new JTabbedPane();
-        pestanas.addTab("Principal (día)", new PanelPrincipal(datos));
+        pestanas.addTab("Principal", new PanelPrincipal(datos));
         pestanas.addTab("Inventario", new PanelInventario(datos));
         pestanas.addTab("Proveedores", new PanelProveedores(datos));
         pestanas.addTab("Menús", new PanelMenus(datos));

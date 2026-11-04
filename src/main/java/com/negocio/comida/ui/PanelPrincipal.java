@@ -30,7 +30,6 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
-import javax.swing.JTabbedPane;
 import javax.swing.ListSelectionModel;
 import javax.swing.JTable;
 import javax.swing.JTextField;
@@ -40,9 +39,9 @@ import javax.swing.SwingConstants;
 import javax.swing.table.DefaultTableModel;
 
 /**
- * Pestaña principal (día de trabajo): menú del día, despachos a clientes,
- * planificación semanal, gastos (otros / combustible / gas / costo de
- * ingredientes) y el resumen de platos por cliente.
+ * Pestaña principal: planificación de menús de la semana, despachos a
+ * clientes, gastos (otros / combustible / gas / costo de ingredientes) y el
+ * resumen de platos por cliente.
  */
 class PanelPrincipal extends JPanel {
     private final DatosNegocio datos;
@@ -56,18 +55,10 @@ class PanelPrincipal extends JPanel {
     private final JLabel lblGastos = tarjetaValor();
     private final JLabel lblUtilidad = tarjetaValor();
 
-    // Menú del día
-    private final BuscadorMenu buscadorDia;
-    private final DefaultTableModel modeloMenuDia =
-            Ui.modelo("Menú", "Precio", "Platos posibles", "Despachados", "Vendido");
-    private final JTable tablaMenuDia = Ui.tabla(modeloMenuDia);
-    private List<Menu> menusDia = List.of();
-
-    // Menú de la semana
+    // Menús de la semana
     private static final DateTimeFormatter DIA_SEMANA =
             DateTimeFormatter.ofPattern("EEEE dd/MM", Locale.forLanguageTag("es"));
     private static final DateTimeFormatter DIA_CORTO = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-    private final JTabbedPane pestanasMenu = new JTabbedPane();
     private final BuscadorMenu buscadorSemana;
     private final JLabel lblSemana = new JLabel();
     private final DefaultTableModel modeloSemana = Ui.modelo("Día", "Menús planificados", "Platos despachados");
@@ -77,7 +68,7 @@ class PanelPrincipal extends JPanel {
     // Despachos
     private final DefaultComboBoxModel<Cliente> modeloClientes = new DefaultComboBoxModel<>();
     private final JComboBox<Cliente> cmbCliente = new JComboBox<>(modeloClientes);
-    private final BuscadorMenu buscadorDespacho = new BuscadorMenu(() -> menusDia, "en el menú de este día");
+    private final BuscadorMenu buscadorDespacho;
     private final JSpinner spPlatos = new JSpinner(new SpinnerNumberModel(1, 1, 10000, 1));
     private final DefaultTableModel modeloDespachos = Ui.modelo("Cliente", "Menú", "Platos", "Total");
     private final JTable tablaDespachos = Ui.tabla(modeloDespachos);
@@ -99,7 +90,7 @@ class PanelPrincipal extends JPanel {
     PanelPrincipal(DatosNegocio datos) {
         super(new BorderLayout(8, 8));
         this.datos = datos;
-        buscadorDia = new BuscadorMenu(datos::getMenus, "registrado");
+        buscadorDespacho = new BuscadorMenu(datos::getMenus, "registrado");
         buscadorSemana = new BuscadorMenu(datos::getMenus, "registrado");
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
@@ -107,7 +98,7 @@ class PanelPrincipal extends JPanel {
 
         // Fila superior un poco más alta para que se vean los 7 días de la semana.
         JPanel centro = new JPanel(new GridBagLayout());
-        agregarCelda(centro, construirMenuDelDia(), 0, 0, 0.58);
+        agregarCelda(centro, construirSemana(), 0, 0, 0.58);
         agregarCelda(centro, construirDespachos(), 1, 0, 0.58);
         agregarCelda(centro, construirGastos(), 0, 1, 0.42);
         agregarCelda(centro, construirPorCliente(), 1, 1, 0.42);
@@ -166,42 +157,8 @@ class PanelPrincipal extends JPanel {
         return cab;
     }
 
-    private JPanel construirMenuDelDia() {
-        JPanel p = Ui.titulo(new JPanel(new BorderLayout()), "Menú del día / de la semana");
-        pestanasMenu.addTab("Día de trabajo", construirPestanaDia());
-        pestanasMenu.addTab("Semana (lunes a domingo)", construirPestanaSemana());
-        p.add(pestanasMenu);
-        return p;
-    }
-
-    private JPanel construirPestanaDia() {
-        JPanel p = new JPanel(new BorderLayout(4, 4));
-        JPanel barra = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        JButton btnAgregar = new JButton("Agregar");
-        JButton btnQuitar = new JButton("Quitar");
-        barra.add(new JLabel("Menú:"));
-        barra.add(buscadorDia);
-        barra.add(btnAgregar);
-        barra.add(btnQuitar);
-        btnAgregar.addActionListener(e -> {
-            Menu m = buscadorDia.getSeleccionado();
-            if (m == null) { Ui.error(this, buscadorDia.motivoSinSeleccion()); return; }
-            datos.agregarAlMenuDelDia(fecha, m);
-            buscadorDia.limpiar();
-            buscadorDia.enfocar();
-        });
-        btnQuitar.addActionListener(e -> {
-            int r = tablaMenuDia.getSelectedRow();
-            if (r < 0) { Ui.error(this, "Seleccione un menú de la tabla."); return; }
-            datos.quitarDelMenuDelDia(fecha, menusDia.get(r));
-        });
-        p.add(barra, BorderLayout.NORTH);
-        p.add(new JScrollPane(tablaMenuDia), BorderLayout.CENTER);
-        return p;
-    }
-
-    private JPanel construirPestanaSemana() {
-        JPanel p = new JPanel(new BorderLayout(4, 4));
+    private JPanel construirSemana() {
+        JPanel p = Ui.titulo(new JPanel(new BorderLayout(4, 4)), "Semana");
 
         JPanel nav = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
         JButton btnAnterior = new JButton("◀");
@@ -244,14 +201,14 @@ class PanelPrincipal extends JPanel {
         tablaSemana.getColumnModel().getColumn(0).setPreferredWidth(110);
         tablaSemana.getColumnModel().getColumn(1).setPreferredWidth(300);
         tablaSemana.getColumnModel().getColumn(2).setPreferredWidth(90);
-        tablaSemana.setToolTipText("Seleccione uno o varios días (Ctrl/Shift + clic). Doble clic abre ese día.");
+        tablaSemana.setToolTipText("Seleccione uno o varios días (Ctrl/Shift + clic). "
+                + "Doble clic: trabajar con ese día (despachos y gastos).");
         tablaSemana.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 int r = tablaSemana.rowAtPoint(e.getPoint());
                 if (e.getClickCount() == 2 && r >= 0) {
                     spFecha.setValue(aDate(diasSemana.get(r)));
-                    pestanasMenu.setSelectedIndex(0);
                 }
             }
         });
@@ -375,8 +332,8 @@ class PanelPrincipal extends JPanel {
         Menu m = buscadorDespacho.getSeleccionado();
         if (c == null) { Ui.error(this, "Registre clientes en la pestaña Clientes."); return; }
         if (m == null) {
-            String motivo = menusDia.isEmpty()
-                    ? "Agregue al menos un menú al menú de este día." : buscadorDespacho.motivoSinSeleccion();
+            String motivo = datos.getMenus().isEmpty()
+                    ? "Primero cree menús en la pestaña Menús." : buscadorDespacho.motivoSinSeleccion();
             Ui.error(this, motivo);
             return;
         }
@@ -422,19 +379,10 @@ class PanelPrincipal extends JPanel {
     private void refrescar() {
         recargar(modeloClientes, List.copyOf(datos.getClientes()));
 
-        // Menú del día
-        menusDia = datos.getMenuDelDia(fecha);
-        modeloMenuDia.setRowCount(0);
-        for (Menu m : menusDia) {
-            int despachados = datos.platosDelDia(fecha, m);
-            modeloMenuDia.addRow(new Object[]{m.getNombre(), Ui.dinero(m.getPrecioVenta()),
-                    datos.platosDisponibles(m), despachados, Ui.dinero(despachados * m.getPrecioVenta())});
-        }
-
         // Semana (se conserva la selección de días)
         List<LocalDate> seleccion = diasSeleccionados();
         LocalDate lunes = DatosNegocio.inicioSemana(fecha);
-        lblSemana.setText("Semana del " + lunes.format(DIA_CORTO) + " al " + lunes.plusDays(6).format(DIA_CORTO));
+        lblSemana.setText(lunes.format(DIA_CORTO) + " al " + lunes.plusDays(6).format(DIA_CORTO));
         List<LocalDate> dias = new ArrayList<>();
         modeloSemana.setRowCount(0);
         for (int i = 0; i < 7; i++) {
